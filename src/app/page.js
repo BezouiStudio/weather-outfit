@@ -949,7 +949,7 @@ export default function App() {
                                          key={index}
                                          className="flex items-center p-3 sm:p-4 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm transition-opacity duration-500 ease-in-out animate-fadeIn"
                                          style={{ animationDelay: `${index * 0.1}s`, opacity: 1 }}
-                                     >
+                                    >
                                          {/* Use the helper function to get specific icons (emojis) */}
                                          <span className="text-2xl sm:text-3xl mr-3 sm:mr-4">{getClothingIcon(suggestion.item)}</span>
                                          <div>
