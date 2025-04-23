@@ -877,28 +877,28 @@ export default function App() {
                                         className="flex items-center p-3 sm:p-4 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm transition-opacity duration-500 ease-in-out animate-fadeIn"
                                         style={{ animationDelay: `${index * 0.1}s`, opacity: 1 }}
                                     >
-                                        {/* Use the helper function to get specific icons (emojis) */}
-                                        <span className="text-2xl sm:text-3xl mr-3 sm:mr-4">{getClothingIcon(suggestion.item)}</span>
-                                        <div>
-                                            <p className="font-semibold text-sm sm:text-base text-gray-800 dark:text-white">{suggestion.item}</p>
-                                            <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">{suggestion.reason}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-center text-gray-600 dark:text-gray-400">
-                                <p>No specific outfit suggestions for the current conditions and activity.</p>
-                                <p className="text-sm mt-2">Consider comfortable everyday wear.</p>
-                            </div>
-                        )}
-                    </section>
-                )}
+                                         {/* Use the helper function to get specific icons (emojis) */}
+                                         <span className="text-2xl sm:text-3xl mr-3 sm:mr-4">{getClothingIcon(suggestion.item)}</span>
+                                         <div>
+                                             <p className="font-semibold text-sm sm:text-base text-gray-800 dark:text-white">{suggestion.item}</p>
+                                             <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">{suggestion.reason}</p>
+                                         </div>
+                                     </div>
+                                 ))}
+                             </div>
+                         ) : (
+                             <div className="text-center text-gray-600 dark:text-gray-400">
+                                 <p>No specific outfit suggestions for the current conditions and activity.</p>
+                                 <p className="text-sm mt-2">Consider comfortable everyday wear.</p>
+                             </div>
+                         )}
+                     </section>
+                 )}
 
                  {/* Tomorrow's Forecast and Suggestions */}
                  {!loading && !error && forecastData && (
                      <section className="mb-6 sm:mb-8 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
-                         <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-800 dark:text-white">Tomorrow's Forecast and Outfit Suggestions ({activity})</h3>
+                         <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-800 dark:text-white">Tomorrow&apos;s Forecast and Outfit Suggestions ({activity})</h3>
 
                           {/* Tomorrow's Daily Summary */}
                            {getTomorrowWeatherSummary() && (
@@ -961,7 +961,7 @@ export default function App() {
                              </div>
                          ) : (
                              <div className="text-center text-gray-600 dark:text-gray-400">
-                                 <p>No specific outfit suggestions for tomorrow's predicted conditions and activity.</p>
+                                 <p>No specific outfit suggestions for tomorrow&apos;s predicted conditions and activity.</p>
                                  <p className="text-sm mt-2">Consider comfortable everyday wear.</p>
                              </div>
                          )}
