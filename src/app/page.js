@@ -1,7 +1,6 @@
-/* eslint-disable react/no-unescaped-entities */
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 
 // Define the CSS keyframes for the fade-in animation
 const fadeInAnimation = `
@@ -93,202 +92,297 @@ const getClothingIcon = (item) => {
 };
 
 
-// Function to determine outfit suggestions (More detailed and useful suggestions)
-const getOutfitSuggestions = (weather, outdoorDurationHours, activity) => {
+// Function to get outfit suggestions for a single hour (Smarter Logic)
+const getSuggestionsForHour = (hourData, activity) => {
     const suggestions = [];
-    const tempC = weather.temperature_2m;
-    const feelsLikeC = weather.apparent_temperature;
-    const windSpeedKmh = weather.wind_speed_10m;
-    const precipitation = weather.precipitation; // mm
-    const uvIndex = weather.uv_index;
-    const weatherCode = weather.weather_code;
+    const temp = hourData.temperature_2m;
+    const feelsLike = hourData.apparent_temperature;
+    const precipitation = hourData.precipitation;
+    const windSpeed = hourData.wind_speed_10m;
+    const uvIndex = hourData.uv_index;
+    const weatherCode = hourData.weather_code;
+    const isDay = hourData.is_day === 1;
 
-    // Helper to add suggestion if not already present
+    // --- Base Layering based on Feels Like Temperature ---
+    if (feelsLike < -15) {
+        suggestions.push('Extreme Cold Thermal Base Layers');
+        suggestions.push('Insulated Mid Layer (Fleece or Down)');
+        suggestions.push('Heavy Insulated & Windproof Outer Layer');
+    } else if (feelsLike < -5) {
+        suggestions.push('Heavyweight Thermal Base Layers');
+        suggestions.push('Warm Mid Layer (Fleece)');
+        suggestions.push('Insulated Winter Coat');
+    } else if (feelsLike < 5) {
+        suggestions.push('Midweight Thermal Base Layers');
+        suggestions.push('Long Sleeve Shirt or Light Fleece');
+        suggestions.push('Medium Weight Jacket');
+    } else if (feelsLike < 15) {
+        suggestions.push('Long Sleeve Shirt or T-shirt');
+        suggestions.push('Light Jacket or Cardigan (Optional)');
+    } else if (feelsLike >= 15 && feelsLike < 22) {
+        suggestions.push('T-shirt or Light Top');
+    } else { // feelsLike >= 22
+        suggestions.push('Lightweight, Breathable Top');
+        if (feelsLike > 30) suggestions.push('Minimal Clothing');
+    }
+
+    // --- Precipitation ---
+    const isRainy = precipitation > 0.5 || (weatherCode >= 61 && weatherCode <= 65) || (weatherCode >= 80 && weatherCode <= 82);
+    const isLightRainy = precipitation > 0.1 && !isRainy; // Light drizzle/rain
+    const isSnowy = (weatherCode >= 71 && weatherCode <= 75) || (weatherCode >= 85 && weatherCode <= 86);
+
+    if (isRainy) {
+        suggestions.push('Waterproof Outer Layer');
+        if (activity !== 'Running' && activity !== 'Hiking') suggestions.push('Umbrella');
+    } else if (isLightRainy) {
+         suggestions.push('Water-resistant Jacket');
+    }
+    if (isSnowy) {
+         suggestions.push('Waterproof/Resistant Winter Coat');
+         suggestions.push('Waterproof Insulated Footwear');
+    }
+
+
+    // --- Wind ---
+    if (windSpeed > 30 && feelsLike < 15) { // Significant wind chill effect
+        if (!suggestions.some(s => s.includes('Windproof'))) suggestions.push('Windproof Outer Layer');
+        suggestions.push('Windproof Headwear (Beanie or Balaclava)');
+        suggestions.push('Insulated & Windproof Gloves');
+    } else if (windSpeed > 20 && feelsLike < 10) { // Moderate wind
+         if (!suggestions.some(s => s.includes('Windproof'))) suggestions.push('Windproof Jacket or Layer'); // Check if windproof already suggested
+         if (feelsLike < 5) suggestions.push('Light Gloves');
+    }
+
+
+    // --- UV ---
+    if (uvIndex > 3 && isDay) {
+        suggestions.push('Sunscreen (Apply generously)');
+        suggestions.push('Sun Hat or Cap');
+        suggestions.push('Sunglasses');
+    }
+
+    // --- Activity Specifics (More Granular) ---
+    if (activity === 'Running' || activity === 'Hiking' || activity === 'Walk') {
+        // Footwear based on conditions
+        if (isRainy || isSnowy) {
+             suggestions.push('Waterproof/Resistant Athletic Footwear');
+        } else if (feelsLike < 5) {
+             suggestions.push('Warmer Athletic Footwear');
+        } else {
+             suggestions.push('Comfortable Athletic Footwear');
+        }
+         suggestions.push('Moisture-wicking Athletic Socks'); // Always suggest athletic socks for these activities
+
+         // Additional cold weather gear for active outdoor
+         if (feelsLike < -5) suggestions.push('Insulated Athletic Gloves');
+         if (feelsLike < 0) suggestions.push('Athletic Headwear (Beanie or Headband)');
+         if (feelsLike < -10) suggestions.push('Neck Gaiter or Balaclava');
+
+         // Hydration for active outdoor
+         if (feelsLike > 15 || hourData.time.getHours() >= 8 && hourData.time.getHours() <= 18) { // Suggest water during warmer temps or daytime
+             suggestions.push('Water Bottle');
+         }
+
+
+    } else if (activity === 'Gym') {
+        // Assume indoors, focus on commute wear and core gym wear
+         if (feelsLike < 10) {
+             suggestions.push('Light Layer (for commute)');
+         } else if (feelsLike < 0) {
+             suggestions.push('Warm Outer Layer (for commute)');
+         }
+         // Add core gym wear if not already suggested by temperature
+         if (!suggestions.some(s => s.includes('Gym Top') || s.includes('T-shirt') || s.includes('Tank Top') || s.includes('Lightweight, Breathable Top'))) {
+             suggestions.push('Gym Top');
+         }
+          if (!suggestions.some(s => s.includes('Gym Bottoms') || s.includes('Shorts') || s.includes('Pants') || s.includes('Leggings'))) {
+              suggestions.push('Gym Bottoms');
+          }
+          if (!suggestions.includes('Athletic Socks')) suggestions.push('Athletic Socks');
+          if (!suggestions.includes('Gym Sneakers')) suggestions.push('Gym Sneakers');
+
+
+    } else if (activity === 'Office') {
+         // Assume indoors, suggest commute wear based on hourly conditions
+         if (feelsLike < -5) {
+             suggestions.push('Heavy Winter Coat (Formal)');
+             suggestions.push('Warm Scarf & Gloves');
+             suggestions.push('Insulated Formal Footwear');
+             suggestions.push('Warm Socks');
+         } else if (feelsLike < 5) {
+             suggestions.push('Medium Weight Coat (Formal)');
+             if (feelsLike < 0) suggestions.push('Scarf & Gloves');
+             suggestions.push('Warmer Formal Footwear');
+             suggestions.push('Socks');
+         } else if (feelsLike < 15) {
+             suggestions.push('Light Jacket or Blazer');
+             suggestions.push('Formal Footwear');
+         } else {
+              if (!suggestions.includes('Formal Footwear')) suggestions.push('Formal Footwear');
+         }
+
+    } else { // Casual Outing or Other
+         // Add general accessories based on temperature/conditions if not already covered
+         if (feelsLike < 0 && !suggestions.includes('Warm Hat')) suggestions.push('Warm Hat');
+         if (feelsLike < 5 && !suggestions.includes('Gloves')) suggestions.push('Gloves');
+         if (feelsLike < 10 && !suggestions.includes('Scarf')) suggestions.push('Scarf');
+         if (isRainy && !suggestions.includes('Waterproof Footwear')) suggestions.push('Waterproof Footwear');
+         if (isLightRainy && !suggestions.includes('Water-resistant Footwear')) suggestions.push('Water-resistant Footwear');
+         if (feelsLike < 10 && !suggestions.includes('Insulated Boots')) suggestions.push('Insulated Boots');
+         if (feelsLike >= 25 && !suggestions.includes('Sandals or Open Footwear')) suggestions.push('Sandals or Open Footwear');
+         if (!suggestions.some(s => s.includes('Footwear'))) suggestions.push('Comfortable Everyday Footwear'); // Default footwear if no specific footwear suggested
+
+
+    }
+
+     // General Hydration reminder for warmer temps or longer durations
+     if (feelsLike > 20 || activity === 'Casual' && hourData.time.getHours() >= 10 && hourData.time.getHours() <= 16) { // Suggest water during warmer temps or mid-day casual
+         suggestions.push('Water Bottle');
+     }
+
+      // Thunderstorm warning
+      if (weatherCode >= 95) {
+          suggestions.push('Seek Shelter Immediately (Thunderstorm)');
+      }
+
+      // Fog warning
+      if (weatherCode >= 45 && weatherCode <= 48) {
+          suggestions.push('Caution: Reduced Visibility (Fog)');
+      }
+
+
+    // Remove duplicates
+    return Array.from(new Set(suggestions));
+};
+
+
+// Function to determine overall outfit suggestions and summary based on a range of hourly weather data
+const getOutfitSuggestions = (hourlyDataForDuration, activity) => {
+    const suggestions = [];
+    // Declare weatherSummary here and initialize
+    let weatherSummary = null;
+
     const addSuggestion = (item, reason) => {
-        if (!suggestions.some(s => s.item === item)) {
+        // Add defensive checks here
+        if (typeof item !== 'string') {
+            console.error('addSuggestion called with non-string item:', item);
+            return; // Do not add invalid suggestion
+        }
+        // Ensure suggestions array contains valid objects before checking
+        if (!suggestions.some(s => s && typeof s === 'object' && typeof s.item === 'string' && s.item === item)) {
             suggestions.push({ item, reason });
         }
     };
 
-    // --- Base Layer & Main Outfit Suggestions based on Temperature and Activity ---
-    if (activity === 'Running' || activity === 'Hiking' || activity === 'Walk') {
-        const isIntenseActivity = activity === 'Running' || activity === 'Hiking';
-
-        if (feelsLikeC < -15) {
-             addSuggestion('Extreme Cold Base Layers', `Extreme Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Insulated Mid Layer', `Extreme Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Heavy Insulated & Windproof Jacket', `Extreme Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Insulated Hat & Mittens', `Extreme Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Thick Wool Socks', `Extreme Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Insulated & Waterproof Footwear', `Extreme Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-        } else if (feelsLikeC >= -15 && feelsLikeC < -5) {
-            addSuggestion('Heavyweight Thermal Base Layers', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Warm Fleece or Insulated Vest', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Insulated Jacket', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Warm Hat & Gloves', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Wool Socks', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Insulated Footwear', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-        } else if (feelsLikeC >= -5 && feelsLikeC < 5) {
-            addSuggestion('Midweight Thermal Base Layers', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Moisture-wicking Long Sleeve Shirt', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Lightweight Jacket or Windbreaker', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            if (feelsLikeC < 0) addSuggestion('Light Hat & Gloves', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Athletic Socks', `For ${activity}`);
-             addSuggestion('Appropriate Footwear', `For ${activity}`);
-        } else if (feelsLikeC >= 5 && feelsLikeC < 15) {
-             addSuggestion('Moisture-wicking Long Sleeve Shirt or T-shirt', `Cool: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Light Jacket or Windbreaker (if windy/rain)', `Cool: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Athletic Socks', `For ${activity}`);
-             addSuggestion('Appropriate Footwear', `For ${activity}`);
-        } else if (feelsLikeC >= 15 && feelsLikeC < 22) {
-             addSuggestion('Moisture-wicking T-shirt or Tank Top', `Mild: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Athletic Shorts or Pants', `For ${activity}`);
-             addSuggestion('Athletic Socks', `For ${activity}`);
-             addSuggestion('Appropriate Footwear', `For ${activity}`);
-        }
-         else { // feelsLikeC >= 22
-             addSuggestion('Lightweight & Breathable Athletic Wear', `Warm: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Athletic Shorts', `For ${activity}`);
-             addSuggestion('Athletic Socks', `For ${activity}`);
-             addSuggestion('Appropriate Footwear', `For ${activity}`);
-        }
-
-
-    } else if (activity === 'Gym') {
-        addSuggestion('Gym Top (T-shirt or Tank)', `For ${activity}`);
-        addSuggestion('Gym Bottoms (Shorts or Pants)', `For ${activity}`);
-        addSuggestion('Athletic Socks', `For ${activity}`);
-        addSuggestion('Gym Sneakers', `For ${activity}`);
-
-
-        // Suggest outer layer for commute if needed
-        if (feelsLikeC < 10 && outdoorDurationHours > 0.1) {
-             addSuggestion('Light Layer (for commute)', `Commute weather: Feels like ${feelsLikeC.toFixed(1)}°C`);
-        } else if (feelsLikeC < 0 && outdoorDurationHours > 0.1) {
-             addSuggestion('Warm Outer Layer (for commute)', `Commute weather: Feels like ${feelsLikeC.toFixed(1)}°C` );
-        }
-
-    } else if (activity === 'Office') {
-         if (feelsLikeC < -5) {
-            addSuggestion('Heavy Winter Coat (Formal)', `Very Cold Commute: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Warm Scarf & Gloves', `Very Cold Commute: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Insulated Formal Footwear', `Very Cold Commute`);
-             addSuggestion('Warm Socks', `Very Cold Commute`);
-        } else if (feelsLikeC >= -5 && feelsLikeC < 5) {
-            addSuggestion('Medium Weight Coat (Formal)', `Cold Commute: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            if (feelsLikeC < 0) addSuggestion('Scarf & Gloves', `Cold Commute: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Warmer Formal Footwear', `Cold Commute`);
-             addSuggestion('Socks', `Cold Commute`);
-        } else if (feelsLikeC >= 5 && feelsLikeC < 15) {
-            addSuggestion('Light Jacket or Blazer', `Cool Commute: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Formal Footwear', 'For Office');
-        } else if (feelsLikeC >= 15 && tempC < 25) {
-             if (outdoorDurationHours > 0.25) {
-                 addSuggestion('Light Layer (for commute)', `For commute`);
-             }
-             addSuggestion('Formal Footwear', 'For Office');
-        } else { // tempC >= 25
-             addSuggestion('Formal Attire', 'For Office');
-             addSuggestion('Formal Footwear', 'For Office');
-        }
-         // Assume office attire indoors, focus on commute suggestions
-
+    if (!hourlyDataForDuration || hourlyDataForDuration.length === 0) {
+        // Ensure a valid object with empty suggestions and null summary is always returned
+        return { suggestions: [], summary: null };
     }
-     else { // Casual Outing or Other
-        if (feelsLikeC < -5) {
-             addSuggestion('Extreme Cold Winter Coat', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Insulated Hat, Scarf & Gloves', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Insulated & Waterproof Boots', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Thick Wool Socks', `Very Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-        } else if (feelsLikeC >= -5 && feelsLikeC < 5) {
-            addSuggestion('Heavy Winter Coat', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Warm Hat & Gloves', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Scarf', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Insulated Boots', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Wool Socks', `Cold: Feels like ${feelsLikeC.toFixed(1)}°C`);
-        } else if (feelsLikeC >= 5 && feelsLikeC < 10) {
-            addSuggestion('Medium Weight Jacket or Fleece', `Cool: Feels like ${feelsLikeC.toFixed(1)}°C`);
-            addSuggestion('Light Scarf or Beanie', `Cool: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Comfortable Walking Shoes', `For ${outdoorDurationHours}h outdoors`);
-             addSuggestion('Socks', 'With footwear');
-        } else if (feelsLikeC >= 10 && feelsLikeC < 18) {
-            addSuggestion('Light Jacket or Cardigan', `Mild: Feels like ${feelsLikeC.toFixed(1)}°C`);
-             addSuggestion('Comfortable Walking Shoes', `For ${outdoorDurationHours}h outdoors`);
-             addSuggestion('Socks', 'With footwear');
-        } else if (tempC >= 18 && tempC < 25) {
-            addSuggestion('Light Layers (Top & Bottom)', `Pleasant: Temperature ${tempC.toFixed(1)}°C`);
-             addSuggestion('Comfortable Everyday Footwear', 'Pleasant weather');
-        } else if (tempC >= 25 && tempC < 30) {
-            addSuggestion('Lightweight & Breathable Clothing', `Warm: Temperature ${tempC.toFixed(1)}°C`);
-             addSuggestion('Breathable Casual Footwear', `Warm weather`);
-        } else if (tempC >= 30) {
-             addSuggestion('Minimal, Breathable Clothing', `Hot: Temperature ${tempC.toFixed(1)}°C`);
-             addSuggestion('Sandals or Open Footwear', `Hot weather`);
-        }
-         // Ensure a suggestion is always added for Casual in moderate temps if no specific item is suggested yet
-         if (activity === 'Casual' && suggestions.length === 0) {
-             addSuggestion('Comfortable Everyday Wear', 'General conditions');
-             addSuggestion('Comfortable Everyday Footwear', 'General conditions');
+
+    // Analyze conditions over the duration
+    const temps = hourlyDataForDuration.map(d => d.temperature_2m);
+    const feelsLikeTemps = hourlyDataForDuration.map(d => d.apparent_temperature);
+    const precipitations = hourlyDataForDuration.map(d => d.precipitation);
+    const windSpeeds = hourlyDataForDuration.map(d => d.wind_speed_10m);
+    const uvIndices = hourlyDataForDuration.map(d => d.uv_index);
+    const weatherCodes = hourlyDataForDuration.map(d => d.weather_code);
+
+    const minTemp = Math.min(...temps);
+    const maxTemp = Math.max(...temps);
+    const minFeelsLike = Math.min(...feelsLikeTemps);
+    const maxFeelsLike = Math.max(...feelsLikeTemps);
+    const totalPrecipitation = precipitations.reduce((sum, p) => sum + p, 0);
+    const maxWindSpeed = Math.max(...windSpeeds);
+    const maxUvIndex = Math.max(...uvIndices);
+    const hasSignificantRain = precipitations.some(p => p > 0.5); // Threshold for rain gear
+    const hasAnyPrecipitation = totalPrecipitation > 0;
+    const hasThunderstorm = weatherCodes.some(code => code >= 95);
+    const hasFog = weatherCodes.some(code => code >= 45 && code <= 48);
+
+
+    // Determine representative "feels like" temperature for overall suggestion
+    // Use the average or median, or perhaps the temperature during the coldest/warmest part of the duration
+    const representativeFeelsLike = feelsLikeTemps[Math.floor(feelsLikeTemps.length / 2)]; // Using middle hour as representative
+
+    // --- Overall Suggestions based on the duration's range and dominant conditions ---
+    // These are more general suggestions compared to the hourly ones, focusing on necessary items for the whole period.
+
+     if (maxFeelsLike < -10) {
+         addSuggestion('Heavy Winter Outerwear', `Expected during duration: Feels like down to ${minFeelsLike.toFixed(1)}°C`);
+         addSuggestion('Thermal Base and Mid Layers', `For extreme cold`);
+         addSuggestion('Insulated Headwear and Handwear', `For extreme cold`);
+     } else if (maxFeelsLike < 0) {
+         addSuggestion('Warm Winter Coat', `Expected during duration: Feels like down to ${minFeelsLike.toFixed(1)}°C`);
+         addSuggestion('Thermal Base Layers', `For cold conditions`);
+         addSuggestion('Warm Hat and Gloves', `For cold conditions`);
+     } else if (maxFeelsLike < 10) {
+         addSuggestion('Medium Weight Jacket or Layers', `Expected during duration: Feels like between ${minFeelsLike.toFixed(1)}°C and ${maxFeelsLike.toFixed(1)}°C`);
+         if (minFeelsLike < 5) addSuggestion('Long Sleeve Shirt', `For cooler parts of duration`);
+         if (minFeelsLike < 0) addSuggestion('Light Hat and Gloves', `If temperature dips below freezing`);
+     } else if (maxFeelsLike < 20) {
+         addSuggestion('Light Jacket or Cardigan (Optional)', `Expected during duration: Feels like between ${minFeelsLike.toFixed(1)}°C and ${maxFeelsLike.toFixed(1)}°C`);
+         addSuggestion('Comfortable Top', `For mild conditions`);
+     }
+      else { // maxFeelsLike >= 20
+          addSuggestion('Lightweight & Breathable Clothing', `Expected during duration: Feels like up to ${maxFeelsLike.toFixed(1)}°C`);
+          if (maxFeelsLike > 30) addSuggestion('Minimal Clothing Recommended', 'For very hot conditions');
+     }
+
+
+    // Add general suggestions based on conditions over the duration
+    if (hasSignificantRain) {
+        addSuggestion('Waterproof Outerwear (Jacket & Pants)', `Rain expected during duration`);
+        if (activity !== 'Running' && activity !== 'Hiking') addSuggestion('Umbrella');
+        addSuggestion('Waterproof Footwear', `For wet conditions`);
+    } else if (hasAnyPrecipitation) {
+         addSuggestion('Water-resistant Jacket', `Light rain or drizzle expected`);
+         if (!suggestions.some(s => s.item && s.item.includes('Waterproof Footwear'))) addSuggestion('Water-resistant Footwear', `For damp conditions`); // Added check for s.item
+    }
+
+    if (maxWindSpeed > 30) {
+        addSuggestion('Windproof Outer Layer', `Strong winds expected (${maxWindSpeed.toFixed(1)} km/h)`);
+        if (minFeelsLike < 10) addSuggestion('Windproof Accessories (Hat, Gloves)', `To protect from wind chill`);
+    } else if (maxWindSpeed > 20) {
+         addSuggestion('Consider Wind Protection', `Moderate winds expected (${maxWindSpeed.toFixed(1)} km/h)`);
+    }
+
+
+    if (maxUvIndex > 4 && hourlyDataForDuration.some(d => d.is_day === 1)) { // Higher threshold for overall UV suggestion
+        addSuggestion('Strong Sun Protection (SPF 30+, Hat, Sunglasses)', `High UV Index (${maxUvIndex.toFixed(1)}) during daylight hours`);
+    } else if (maxUvIndex > 2 && hourlyDataForDuration.some(d => d.is_day === 1)) {
+         addSuggestion('Sun Protection (Sunscreen, Hat, Sunglasses)', `Moderate UV Index (${maxUvIndex.toFixed(1)}) during daylight hours`);
+    }
+
+
+     if (hasThunderstorm) {
+         addSuggestion('Monitor Conditions & Seek Shelter Plan', 'Thunderstorms expected during duration');
+     }
+
+      if (hasFog) {
+          addSuggestion('Exercise Caution Due to Reduced Visibility', 'Fog expected during duration');
+      }
+
+     // Hydration reminder if duration is long or temperature is high
+     if (hourlyDataForDuration.length > 2 || maxTemp > 25 || activity === 'Running' || activity === 'Hiking') {
+         addSuggestion('Carry Water Bottle', 'Stay hydrated during your time outdoors');
+     }
+
+    // Activity-specific footwear suggestions (overall)
+     if (activity === 'Running' || activity === 'Hiking' || activity === 'Walk') {
+         if (!suggestions.some(s => s.item && (s.item.includes('Athletic Footwear') || s.item.includes('Waterproof/Resistant Athletic Footwear')))) { // Added check for s.item
+             addSuggestion('Appropriate Athletic Footwear', `For ${activity}`);
          }
-    }
-
-
-    // --- Add suggestions based on other factors (Wind, Precipitation, UV) ---
-
-    if (precipitation > 1) {
-        if (tempC > 0) {
-            addSuggestion('Waterproof Outer Layer', `Heavy Rain: ${precipitation.toFixed(1)} mm`);
-            if (activity !== 'Running' && activity !== 'Hiking') addSuggestion('Umbrella', `Heavy Rain: ${precipitation.toFixed(1)} mm`);
-             // Check if footwear suggestion is already waterproof, if not suggest waterproof
-             if (!suggestions.some(s => s.item.includes('Waterproof') && s.item.includes('Footwear'))) {
-                 addSuggestion('Waterproof Footwear', `Heavy Rain expected`);
-             }
-        } else {
-            addSuggestion('Waterproof Insulated Outer Layer', `Heavy Snow/Ice expected`);
-            addSuggestion('Waterproof Insulated Footwear', `Heavy Snow/Ice expected`);
-             addSuggestion('Thick Gloves', `Heavy Snow/Ice expected`);
-             addSuggestion('Warm Hat', `Heavy Snow/Ice expected`);
-        }
-    } else if (precipitation > 0.1) {
-         if (tempC > 0) {
-            addSuggestion('Water-resistant Jacket', `Light Rain: ${precipitation.toFixed(1)} mm`);
-            if (outdoorDurationHours > 0.5 && activity !== 'Running' && activity !== 'Hiking') addSuggestion('Umbrella (Optional)', `Light Rain & ${outdoorDurationHours}h outdoors`);
-             // Check if footwear suggestion is already water-resistant/proof, if not suggest water-resistant
-              if (!suggestions.some(s => (s.item.includes('Waterproof') || s.item.includes('Water-resistant')) && s.item.includes('Footwear'))) {
-                 addSuggestion('Water-resistant Footwear', `Light Rain expected`);
-             }
-         } else {
-             addSuggestion('Water-resistant Winter Coat', `Light Snow expected`);
-             addSuggestion('Water-resistant Boots', `Light Snow expected`);
+          if (!suggestions.some(s => s.item && (s.item.includes('Athletic Socks') || s.item.includes('Wool Socks')))) { // Added check for s.item
+              addSuggestion('Athletic Socks', `For comfort and moisture wicking`);
+          }
+     } else if (activity === 'Office') {
+          if (!suggestions.some(s => s.item && (s.item.includes('Formal Footwear') || s.item.includes('Insulated Formal Footwear')))) { // Added check for s.item
+              addSuggestion('Formal Footwear', 'For the office');
+          }
+     } else if (activity === 'Casual' || activity === 'Other') {
+         if (!suggestions.some(s => s.item && (s.item.includes('Footwear') || s.item.includes('Boots') || s.item.includes('Sandals')))) { // Added check for s.item
+             addSuggestion('Comfortable Casual Footwear', 'For general wear');
          }
-    }
-
-
-    if (windSpeedKmh > 20) { // Slightly lower threshold for wind consideration
-        if (!suggestions.some(s => s.item.includes('Coat') || s.item.includes('Jacket') || s.item.includes('Outer Layer') || s.item.includes('Windproof'))) {
-             addSuggestion('Windproof Jacket or Layer', `Wind speed: ${windSpeedKmh.toFixed(1)} km/h`);
-        }
-        if (windSpeedKmh > 35) { // Higher threshold for extra protection
-             addSuggestion('Extra Wind Protection (Neck/Face)', `Strong winds: ${windSpeedKmh.toFixed(1)} km/h`);
-             if (feelsLikeC < 10) addSuggestion('Windproof Gloves', `Strong winds: ${feelsLikeC.toFixed(1)}°C`);
-        }
-    }
-
-    // --- Duration and UV Sensitivity ---
-    if (uvIndex > 3 && outdoorDurationHours > 0.25) {
-        addSuggestion('Sunscreen', `UV Index: ${uvIndex.toFixed(1)} & ${outdoorDurationHours}h outdoors`);
-        if (!suggestions.some(s => s.item.includes('Hat') && s.item.includes('Sun'))) addSuggestion('Sun Hat or Cap', `UV Index: ${uvIndex.toFixed(1)} & ${outdoorDurationHours}h outdoors`);
-        addSuggestion('Sunglasses', `UV Index: ${uvIndex.toFixed(1)} & ${outdoorDurationHours}h outdoors`);
-    }
-
-     // Consider duration for extra layers or hydration
-    if (outdoorDurationHours > 2) { // Increased duration threshold for extra layers
-        if (feelsLikeC < 18 && !suggestions.some(s => s.item.includes('Thermal')) && activity !== 'Gym') {
-             addSuggestion('Consider Extra Layers', `Extended time outdoors in cooler weather`);
-        }
-    }
-     if (outdoorDurationHours > 1 || tempC > 25 || activity === 'Running' || activity === 'Hiking') { // Suggest water for longer durations, heat, or active pursuits
-         addSuggestion('Water Bottle', `Stay hydrated during ${activity || 'time'} outdoors`);
      }
 
 
@@ -300,11 +394,57 @@ const getOutfitSuggestions = (weather, outdoorDurationHours, activity) => {
     // Ensure a base suggestion if list is empty (should be less likely with detailed logic)
      if (uniqueSuggestions.length === 0) {
          uniqueSuggestions.push({ item: 'Comfortable Everyday Wear', reason: 'General conditions' });
-         uniqueSuggestions.push({ item: 'Comfortable Everyday Footwear', reason: 'General conditions' });
      }
 
+    // Construct weatherSummary after analyzing conditions
+    // Count occurrences of each weather code
+    const weatherCodeCounts = weatherCodes.reduce((counts, code) => {
+        counts[code] = (counts[code] || 0) + 1;
+        return counts;
+    }, {});
 
-    return uniqueSuggestions;
+    // Find the dominant weather code (the one with the highest count)
+    const dominantWeatherCode = Object.keys(weatherCodeCounts).reduce((a, b) =>
+        weatherCodeCounts[a] > weatherCodeCounts[b] ? a : b, null);
+
+
+    weatherSummary = {
+        minTemp: minTemp.toFixed(1),
+        maxTemp: maxTemp.toFixed(1),
+        minFeelsLike: minFeelsLike.toFixed(1),
+        maxFeelsLike: maxFeelsLike.toFixed(1),
+        totalPrecipitation: totalPrecipitation.toFixed(1),
+        maxWind: maxWindSpeed.toFixed(1),
+        maxUv: maxUvIndex.toFixed(1),
+        dominantCondition: getWeatherDescription(parseInt(dominantWeatherCode, 10)),
+        dominantIcon: getWeatherIcon(parseInt(dominantWeatherCode, 10)),
+    };
+
+
+    return { suggestions: uniqueSuggestions, summary: weatherSummary }; // Return both suggestions and summary
+};
+
+
+// Function to generate hourly suggestions for a duration
+const generateHourlySuggestions = (hourlyDataForDuration, activity) => {
+    if (!hourlyDataForDuration || hourlyDataForDuration.length === 0) {
+        return [];
+    }
+    return hourlyDataForDuration.map(hourData => ({
+        time: hourData.time,
+        weather: { // Include weather details for the hour
+            temperature: hourData.temperature_2m,
+            feelsLike: hourData.apparent_temperature,
+            precipitation: hourData.precipitation,
+            windSpeed: hourData.wind_speed_10m,
+            uvIndex: hourData.uv_index,
+            weatherCode: hourData.weather_code,
+            isDay: hourData.is_day,
+            description: getWeatherDescription(hourData.weather_code),
+            icon: getWeatherIcon(hourData.weather_code),
+        },
+        suggestions: getSuggestionsForHour(hourData, activity),
+    }));
 };
 
 
@@ -317,16 +457,17 @@ export default function App() {
     const [error, setError] = useState(null);
     const [outdoorDuration, setOutdoorDuration] = useState(1); // Duration in hours, default 1 hour
     const [activity, setActivity] = useState('Casual'); // Default activity
-    const [currentOutfitSuggestions, setCurrentOutfitSuggestions] = useState([]); // Suggestions for current weather
-    const [tomorrowOutfitSuggestions, setTomorrowOutfitSuggestions] = useState([]); // Suggestions for tomorrow
+    const [currentOutfitSuggestions, setCurrentOutfitSuggestions] = useState([]); // Overall suggestions for current duration
+    const [currentWeatherSummary, setCurrentWeatherSummary] = useState(null); // Summary for current duration
+    const [hourlySuggestionsForDuration, setHourlySuggestionsForDuration] = useState([]); // Detailed hourly suggestions for current duration
+    const [tomorrowOutfitSuggestions, setTomorrowOutfitSuggestions] = useState([]); // Overall suggestions for tomorrow
+    const [tomorrowWeatherSummary, setTomorrowWeatherSummary] = useState(null); // Summary for tomorrow
     const [placeName, setPlaceName] = useState('Your Location');
     const [isDarkMode, setIsDarkMode] = useState(false);
 
-     // Refs for the chart containers to get their width for responsiveness
+     // Refs for the chart containers - no longer directly used for width measurement
     const todayChartContainerRef = useRef(null);
     const tomorrowChartContainerRef = useRef(null);
-    const [todayChartWidth, setTodayChartWidth] = useState(0);
-    const [tomorrowChartWidth, setTomorrowChartWidth] = useState(0);
 
 
     // Inject the animation keyframes into the head
@@ -339,49 +480,11 @@ export default function App() {
         };
     }, []);
 
-     // Effect to update chart widths using ResizeObserver with a delay
+     // Effect to handle dark mode based on system preference initially
      useEffect(() => {
-         const updateWidths = () => {
-              if (todayChartContainerRef.current) {
-                  console.log('Today Chart Container Width:', todayChartContainerRef.current.offsetWidth);
-                  setTodayChartWidth(todayChartContainerRef.current.offsetWidth);
-              } else {
-                  console.log('Today Chart Container Ref not available');
-              }
-              if (tomorrowChartContainerRef.current) {
-                  console.log('Tomorrow Chart Container Width:', tomorrowChartContainerRef.current.offsetWidth);
-                  setTomorrowChartWidth(tomorrowChartContainerRef.current.offsetWidth);
-              } else {
-                   console.log('Tomorrow Chart Container Ref not available');
-              }
-         };
-
-         const todayObserver = new ResizeObserver(updateWidths);
-         const tomorrowObserver = new ResizeObserver(updateWidths);
-
-
-         // Add a small delay before observing to allow DOM to settle
-         const timeoutId = setTimeout(() => {
-             if (todayChartContainerRef.current) {
-                 todayObserver.observe(todayChartContainerRef.current);
-             }
-             if (tomorrowChartContainerRef.current) {
-                 tomorrowObserver.observe(tomorrowChartContainerRef.current);
-             }
-              // Also run updateWidths once after the delay in case no resize event occurs
-             updateWidths();
-         }, 200); // Increased delay slightly
-
-         // Initial check in case elements are immediately available
-         updateWidths();
-
-
-         return () => {
-             clearTimeout(timeoutId); // Clean up the timeout
-             todayObserver.disconnect();
-             tomorrowObserver.disconnect();
-         };
-     }, [forecastData]); // Depend on forecastData
+         const prefersDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+         setIsDarkMode(prefersDarkMode);
+     }, []);
 
 
     // Get user's location
@@ -447,23 +550,15 @@ export default function App() {
         }
     }, [location]);
 
-    // Update outfit suggestions when weather data, duration, or activity changes
+    // Update outfit suggestions and weather summary for today when forecast data, duration, or activity changes
     useEffect(() => {
-        if (weatherData) {
-            const suggestions = getOutfitSuggestions(weatherData, outdoorDuration, activity);
-            setCurrentOutfitSuggestions(suggestions);
-        }
-    }, [weatherData, outdoorDuration, activity]); // Dependency array includes outdoorDuration and activity
-
-     // Update tomorrow's outfit suggestions when forecast data or activity changes
-     useEffect(() => {
-         if (forecastData) {
-             // Find the data for tomorrow (starting from the next full hour after now)
-             const now = new Date();
-             const tomorrowData = forecastData.time.reduce((acc, time, index) => {
-                 const date = new Date(time);
-                 // Check if the date is tomorrow and the hour is in the future relative to now
-                 if (date.getDate() === now.getDate() + 1) {
+        if (forecastData) { // Use forecastData to get hourly data
+            const now = new Date();
+            const currentHour = now.getHours();
+            const todayHourlyDataForDuration = forecastData.time.reduce((acc, time, index) => {
+                const date = new Date(time);
+                // Include data from the current hour up to the specified duration
+                if (date.getDate() === now.getDate() && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear() && date.getHours() >= currentHour && date.getHours() < currentHour + outdoorDuration) {
                      acc.push({
                          time: date,
                          temperature_2m: forecastData.temperature_2m[index],
@@ -474,48 +569,87 @@ export default function App() {
                          uv_index: forecastData.uv_index[index],
                          is_day: forecastData.is_day[index],
                      });
-                 }
+                }
+                return acc;
+            }, []);
+
+            const outfitResult = getOutfitSuggestions(todayHourlyDataForDuration, activity);
+            // Add robust check here before destructuring
+            if (outfitResult && typeof outfitResult === 'object' && Array.isArray(outfitResult.suggestions) && outfitResult.summary !== undefined) {
+                const { suggestions, summary } = outfitResult;
+                setCurrentOutfitSuggestions(suggestions);
+                setCurrentWeatherSummary(summary); // Set today's weather summary
+            } else {
+                 // Handle unexpected return from getOutfitSuggestions if necessary
+                 console.error("getOutfitSuggestions returned unexpected value:", outfitResult);
+                 setCurrentOutfitSuggestions([]);
+                 setCurrentWeatherSummary(null);
+            }
+
+
+            const hourlySuggestions = generateHourlySuggestions(todayHourlyDataForDuration, activity);
+            setHourlySuggestionsForDuration(hourlySuggestions); // Set detailed hourly suggestions
+
+        } else if (weatherData) {
+             // Fallback to current weather if forecast data isn't available yet
+             const outfitResult = getOutfitSuggestions([weatherData], activity); // Pass current weather as an array
+             // Add robust check here before destructuring
+             if (outfitResult && typeof outfitResult === 'object' && Array.isArray(outfitResult.suggestions) && outfitResult.summary !== undefined) {
+                 const { suggestions, summary } = outfitResult;
+                 setCurrentOutfitSuggestions(suggestions);
+                 setCurrentWeatherSummary(summary); // Set today's weather summary
+             } else {
+                 // Handle unexpected return from getOutfitSuggestions if necessary
+                 console.error("getOutfitSuggestions returned unexpected value (fallback):", outfitResult);
+                 setCurrentOutfitSuggestions([]);
+                 setCurrentWeatherSummary(null);
+             }
+             setHourlySuggestionsForDuration(generateHourlySuggestions([weatherData], activity)); // Generate hourly for current hour
+        }
+    }, [weatherData, forecastData, outdoorDuration, activity]); // Depend on all relevant states
+
+     // Update tomorrow's outfit suggestions and weather summary when forecast data or activity changes
+     useEffect(() => {
+         if (forecastData) {
+             const now = new Date();
+             const tomorrowData = forecastData.time.reduce((acc, time, index) => {
+                 const date = new Date(time);
+                  // Check if the date is tomorrow
+                  if (date.getDate() === now.getDate() + 1) {
+                      acc.push({
+                          time: date,
+                          temperature_2m: forecastData.temperature_2m[index],
+                          apparent_temperature: forecastData.apparent_temperature[index],
+                          precipitation: forecastData.precipitation[index],
+                          weather_code: forecastData.weather_code[index],
+                          wind_speed_10m: forecastData.wind_speed_10m[index],
+                          uv_index: forecastData.uv_index[index],
+                          is_day: forecastData.is_day[index],
+                      });
+                  }
                  return acc;
              }, []);
 
-             // For tomorrow's suggestion, use conditions around midday as representative
-             const middayHour = 12; // Assuming midday is a good representative time
-             const tomorrowMiddayData = tomorrowData.find(d => d.time.getHours() === middayHour);
+             // For tomorrow's suggestion and summary, consider the whole day (or a standard daytime period)
+             // Let's use hours 8 AM to 8 PM as a representative daytime
+             const tomorrowDaytimeData = tomorrowData.filter(d => d.time.getHours() >= 8 && d.time.getHours() <= 20);
 
-             if (tomorrowMiddayData) {
-                  // Generate suggestions for tomorrow based on midday conditions (assuming a full day outdoors for simplicity)
-                  const suggestions = getOutfitSuggestions(tomorrowMiddayData, 8, activity); // Assume 8 hours outdoors for tomorrow's general suggestion
-                  setTomorrowOutfitSuggestions(suggestions);
+
+             const outfitResult = getOutfitSuggestions(tomorrowDaytimeData.length > 0 ? tomorrowDaytimeData : tomorrowData, activity); // Use daytime data if available, otherwise all tomorrow's data
+             // Add robust check here before destructuring
+             if (outfitResult && typeof outfitResult === 'object' && Array.isArray(outfitResult.suggestions) && outfitResult.summary !== undefined) {
+                 const { suggestions, summary } = outfitResult;
+                 setTomorrowOutfitSuggestions(suggestions);
+                 setTomorrowWeatherSummary(summary); // Set tomorrow's weather summary
              } else {
-                 // Fallback to average if midday data is not available (e.g., if forecast doesn't align perfectly)
-                 const tomorrowAvgTemp = tomorrowData.reduce((sum, hour) => sum + hour.temperature_2m, 0) / tomorrowData.length;
-                  const weatherCodeCounts = tomorrowData.reduce((counts, hour) => {
-                      counts[hour.weather_code] = (counts[hour.weather_code] || 0) + 1;
-                      return counts;
-                  }, {});
-                  const dominantWeatherCode = Object.keys(weatherCodeCounts).reduce((a, b) => weatherCodeCounts[a] > weatherCodeCounts[b] ? a : b, null);
-
-                  const tomorrowRepresentativeWeather = {
-                      temperature_2m: tomorrowAvgTemp,
-                      apparent_temperature: tomorrowAvgTemp,
-                      precipitation: tomorrowData.reduce((sum, hour) => sum + hour.precipitation, 0) > 0 ? 1 : 0,
-                      weather_code: parseInt(dominantWeatherCode, 10),
-                      wind_speed_10m: tomorrowData.reduce((max, hour) => Math.max(max, hour.wind_speed_10m), 0),
-                      uv_index: tomorrowData.reduce((max, hour) => Math.max(max, hour.uv_index), 0),
-                  };
-
-                  const suggestions = getOutfitSuggestions(tomorrowRepresentativeWeather, 8, activity);
-                  setTomorrowOutfitSuggestions(suggestions);
-
+                  // Handle unexpected return from getOutfitSuggestions if necessary
+                  console.error("getOutfitSuggestions returned unexpected value (tomorrow):", outfitResult);
+                  setTomorrowOutfitSuggestions([]);
+                  setTomorrowWeatherSummary(null);
              }
-         }
-     }, [forecastData, activity]); // Dependency array includes forecastData and activity
 
-    // Effect to set dark mode based on system preference initially
-    useEffect(() => {
-        const prefersDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        setIsDarkMode(prefersDarkMode);
-    }, []);
+         }
+     }, [forecastData, activity]); // Depend on forecastData and activity
 
     // Toggle dark mode
     const toggleDarkMode = () => {
@@ -542,10 +676,17 @@ export default function App() {
     };
 
      // Function to render a basic SVG line chart for temperature
-     const renderTemperatureChart = (hourlyData, chartWidth, title) => {
-         console.log(`Rendering chart "${title}" with width: ${chartWidth}`); // Log chart width
-         if (!hourlyData || hourlyData.length <= 1 || !chartWidth || chartWidth <= 0) { // Ensure valid data and width
-             console.log(`Chart "${title}" not rendering: Invalid data, insufficient points, or zero width.`);
+     const renderTemperatureChart = (hourlyData, title) => {
+         // Define a fixed viewBox size and let CSS handle the scaling
+         const viewBoxWidth = 600; // Increased viewBox width for more space
+         const viewBoxHeight = 200; // Increased viewBox height
+         const padding = 40; // Increased padding within viewBox
+         const chartInnerWidth = viewBoxWidth - 2 * padding;
+         const chartHeight = viewBoxHeight - 2 * padding;
+
+
+         if (!hourlyData || hourlyData.length <= 1) { // Ensure valid data
+             console.log(`Chart "${title}" not rendering: Invalid data or insufficient points.`);
              return null;
          }
 
@@ -553,16 +694,11 @@ export default function App() {
          const minTemp = Math.min(...temperatures);
          const maxTemp = Math.max(...temperatures);
 
-         const padding = 30; // Increased padding for labels
-         const svgHeight = 180; // Increased height for better chart
-         const chartHeight = svgHeight - 2 * padding;
-         const chartInnerWidth = chartWidth - 2 * padding;
-
          // Handle case where min and max temperatures are the same
          const isConstantTemp = minTemp === maxTemp;
          const yValue = isConstantTemp ? chartHeight / 2 + padding : 0; // Use a fixed y if temp is constant
 
-         // Create points for the line chart
+         // Create points for the line chart scaled to the viewBox
          const points = hourlyData.map((d, index) => {
              const x = (index / (hourlyData.length - 1)) * chartInnerWidth + padding;
              // Scale temperature to fit chart height (invert y-axis for SVG)
@@ -570,14 +706,14 @@ export default function App() {
              return `${x},${y}`;
          }).join(' ');
 
-         // Create points for the area under the line
-         const areaPoints = `${padding},${svgHeight - padding} ${points} ${chartInnerWidth + padding},${svgHeight - padding}`;
+         // Create points for the area under the line scaled to the viewBox
+         const areaPoints = `${padding},${viewBoxHeight - padding} ${points} ${chartInnerWidth + padding},${viewBoxHeight - padding}`;
 
 
-         // Generate X-axis labels (every 4 hours)
+         // Generate X-axis labels (every 4 hours) scaled to the viewBox
          const xLabels = hourlyData.filter((_, index) => index % 4 === 0);
 
-         // Generate Y-axis temperature markers (e.g., min, max, and a couple in between)
+         // Generate Y-axis temperature markers (e.g., min, max, and a couple in between) scaled to the viewBox
           const tempMarkers = isConstantTemp ? [minTemp] : [minTemp, maxTemp]; // Only show one marker if temp is constant
           if (!isConstantTemp && maxTemp - minTemp > 5) { // Add intermediate markers if range is large enough and not constant
               tempMarkers.push(minTemp + (maxTemp - minTemp) / 3);
@@ -592,17 +728,18 @@ export default function App() {
          return (
              <div className="mt-6">
                  <h4 className="text-md sm:text-lg font-semibold mb-2 text-gray-800 dark:text-white">{title} (°C)</h4>
-                 <svg width={chartWidth} height={svgHeight}>
+                 {/* Use viewBox and let CSS handle the sizing */}
+                 <svg viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} preserveAspectRatio="xMidYMid meet" className="w-full h-auto">
                      {/* Horizontal Grid Lines (for temperature markers) */}
                       {yMarkers.map((marker, index) => (
-                          <line key={`y-grid-${index}`} x1={padding} y1={marker.y} x2={chartWidth - padding} y2={marker.y} stroke={isDarkMode ? '#444' : '#eee'} strokeWidth="1" strokeDasharray="4"/>
+                          <line key={`y-grid-${index}`} x1={padding} y1={marker.y} x2={viewBoxWidth - padding} y2={marker.y} stroke={isDarkMode ? '#444' : '#eee'} strokeWidth="1" strokeDasharray="4"/>
                       ))}
 
                      {/* Vertical Grid Lines (for hourly labels) */}
                       {xLabels.map((d, index) => {
                            const x = (hourlyData.indexOf(d) / (hourlyData.length - 1)) * chartInnerWidth + padding;
                            return (
-                               <line key={`x-grid-${index}`} x1={x} y1={padding} x2={x} y2={svgHeight - padding} stroke={isDarkMode ? '#444' : '#eee'} strokeWidth="1" strokeDasharray="4"/>
+                               <line key={`x-grid-${index}`} x1={x} y1={padding} x2={x} y2={viewBoxHeight - padding} stroke={isDarkMode ? '#444' : '#eee'} strokeWidth="1" strokeDasharray="4"/>
                            );
                        })}
 
@@ -617,7 +754,7 @@ export default function App() {
                       {xLabels.map((d, index) => {
                           const x = (hourlyData.indexOf(d) / (hourlyData.length - 1)) * chartInnerWidth + padding;
                           return (
-                              <text key={index} x={x} y={svgHeight - padding + 15} textAnchor="middle" fontSize="10" fill={isDarkMode ? '#ccc' : '#333'}>
+                              <text key={index} x={x} y={viewBoxHeight - padding + 15} textAnchor="middle" fontSize="10" fill={isDarkMode ? '#ccc' : '#333'}>
                                   {d.time.getHours()}:00
                               </text>
                           );
@@ -645,14 +782,15 @@ export default function App() {
          );
      };
 
-     // Function to get today's hourly data
-     const getTodayHourlyData = () => {
+     // Function to get today's hourly data (for chart)
+     const getTodayHourlyDataForChart = () => {
          if (!forecastData) return null;
          const now = new Date();
-         return forecastData.time.reduce((acc, time, index) => {
+         const currentHour = now.getHours();
+         const todayHourlyData = forecastData.time.reduce((acc, time, index) => {
              const date = new Date(time);
              // Check if the date is today and the hour is in the future or current hour
-             if (date.getDate() === now.getDate() && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear() && date.getHours() >= now.getHours()) {
+             if (date.getDate() === now.getDate() && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear() && date.getHours() >= currentHour) {
                   acc.push({
                       time: date,
                       temperature: forecastData.temperature_2m[index],
@@ -660,13 +798,15 @@ export default function App() {
              }
              return acc;
          }, []);
+          // Limit to the next 24 hours for the chart
+         return todayHourlyData.slice(0, 24);
      };
 
-     // Function to get tomorrow's hourly data
-      const getTomorrowHourlyData = () => {
+     // Function to get tomorrow's hourly data (for chart)
+      const getTomorrowHourlyDataForChart = () => {
           if (!forecastData) return null;
           const now = new Date();
-          return forecastData.time.reduce((acc, time, index) => {
+          const tomorrowData = forecastData.time.reduce((acc, time, index) => {
               const date = new Date(time);
                // Check if the date is tomorrow
                if (date.getDate() === now.getDate() + 1) {
@@ -677,6 +817,8 @@ export default function App() {
                }
               return acc;
           }, []);
+          // Limit to 24 hours for the chart
+          return tomorrowData.slice(0, 24);
       };
 
 
@@ -687,58 +829,6 @@ export default function App() {
          tomorrow.setDate(tomorrow.getDate() + 1);
          return tomorrow.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
      };
-
-     // Function to get tomorrow's weather summary
-      const getTomorrowWeatherSummary = () => {
-          if (!forecastData) return null;
-
-          const now = new Date();
-          const tomorrowData = forecastData.time.reduce((acc, time, index) => {
-              const date = new Date(time);
-               if (date.getDate() === now.getDate() + 1) {
-                   acc.push({
-                       time: date,
-                       temperature_2m: forecastData.temperature_2m[index],
-                       apparent_temperature: forecastData.apparent_temperature[index],
-                       precipitation: forecastData.precipitation[index],
-                       weather_code: forecastData.weather_code[index],
-                       wind_speed_10m: forecastData.wind_speed_10m[index],
-                       uv_index: forecastData.uv_index[index],
-                       is_day: forecastData.is_day[index],
-                   });
-               }
-              return acc;
-          }, []);
-
-          if (tomorrowData.length === 0) return null;
-
-          const minTemp = Math.min(...tomorrowData.map(d => d.temperature_2m));
-          const maxTemp = Math.max(...tomorrowData.map(d => d.temperature_2m));
-          const totalPrecipitation = tomorrowData.reduce((sum, d) => sum + d.precipitation, 0);
-          const maxWindSpeed = Math.max(...tomorrowData.map(d => d.wind_speed_10m));
-          const maxUvIndex = Math.max(...tomorrowData.map(d => d.uv_index));
-
-           // Determine dominant weather condition (simplified - could be improved)
-           const weatherCodeCounts = tomorrowData.reduce((counts, hour) => {
-               counts[hour.weather_code] = (counts[hour.weather_code] || 0) + 1;
-               return counts;
-           }, {});
-           const dominantWeatherCode = Object.keys(weatherCodeCounts).reduce((a, b) => weatherCodeCounts[a] > weatherCodeCounts[b] ? a : b, null);
-           const dominantWeatherDescription = getWeatherDescription(parseInt(dominantWeatherCode, 10));
-           const dominantWeatherIcon = getWeatherIcon(parseInt(dominantWeatherCode, 10));
-
-
-          return {
-              date: getTomorrowDateString(),
-              minTemp: minTemp.toFixed(1),
-              maxTemp: maxTemp.toFixed(1),
-              precipitation: totalPrecipitation.toFixed(1),
-              maxWind: maxWindSpeed.toFixed(1),
-              maxUv: maxUvIndex.toFixed(1),
-              dominantCondition: dominantWeatherDescription,
-              dominantIcon: dominantWeatherIcon,
-          };
-      };
 
 
     return (
@@ -859,17 +949,53 @@ export default function App() {
                 {/* Today's Temperature Trend */}
                  {!loading && !error && forecastData && (
                      <section className="mb-6 sm:mb-8 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
-                         <div ref={todayChartContainerRef} className="w-full overflow-x-auto">
-                             {renderTemperatureChart(getTodayHourlyData(), todayChartWidth, "Today's Temperature Trend")}
+                         <div className="w-full overflow-x-auto">
+                             {renderTemperatureChart(getTodayHourlyDataForChart(), "Today's Temperature Trend")}
                          </div>
                      </section>
                  )}
 
 
-                {/* Current Outfit Suggestions */}
-                {!loading && !error && (
+                {/* Current Outfit Suggestions and Summary for Duration */}
+                {!loading && !error && currentWeatherSummary && (
                     <section className="mb-6 sm:mb-8 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
                         <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-800 dark:text-white">Outfit Suggestions for Today ({activity})</h3>
+
+                         {/* Weather Summary for Selected Duration */}
+                          {currentWeatherSummary && (
+                              <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm text-gray-800 dark:text-white">
+                                  <h4 className="text-md sm:text-lg font-semibold mb-2">Conditions During Your {outdoorDuration} Hour Outing:</h4>
+                                  <div className="flex flex-wrap items-center justify-around text-center text-sm sm:text-base gap-4"> {/* Added flex-wrap and gap */}
+                                      <div className="flex flex-col items-center">
+                                          <span className="text-3xl sm:text-4xl">{currentWeatherSummary.dominantIcon}</span>
+                                          <span className="mt-1">{currentWeatherSummary.dominantCondition}</span>
+                                      </div>
+                                      <div className="flex flex-col items-center">
+                                          <span className="font-bold">{currentWeatherSummary.minTemp}°C to {currentWeatherSummary.maxTemp}°C</span>
+                                          <span>Temp Range</span>
+                                      </div>
+                                       <div className="flex flex-col items-center">
+                                          <span className="font-bold">{currentWeatherSummary.minFeelsLike}°C to {currentWeatherSummary.maxFeelsLike}°C</span>
+                                           <span>Feels Like Range</span>
+                                       </div>
+                                      <div className="flex flex-col items-center">
+                                          <span className="font-bold">{currentWeatherSummary.totalPrecipitation} mm</span>
+                                          <span>Total Precipitation</span>
+                                      </div>
+                                       <div className="flex flex-col items-center">
+                                          <span className="font-bold">{currentWeatherSummary.maxWind} km/h</span>
+                                          <span>Max Wind</span>
+                                      </div>
+                                       <div className="flex flex-col items-center">
+                                          <span className="font-bold">{currentWeatherSummary.maxUv}</span>
+                                          <span>Max UV</span>
+                                       </div>
+                                   </div>
+                               </div>
+                           )}
+
+                        {/* Overall Suggestions for the Duration */}
+                         <h4 className="text-md sm:text-lg font-semibold mb-3 mt-4 text-gray-800 dark:text-white">Overall Suggestions:</h4>
                         {currentOutfitSuggestions.length > 0 ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                                 {currentOutfitSuggestions.map((suggestion, index) => (
@@ -889,45 +1015,83 @@ export default function App() {
                              </div>
                          ) : (
                              <div className="text-center text-gray-600 dark:text-gray-400">
-                                 <p>No specific outfit suggestions for the current conditions and activity.</p>
+                                 <p>No overall outfit suggestions for the current conditions and activity.</p>
                                  <p className="text-sm mt-2">Consider comfortable everyday wear.</p>
                              </div>
                          )}
+
+                         {/* Detailed Hourly Suggestions for the Duration */}
+                         {hourlySuggestionsForDuration.length > 0 && (
+                             <div className="mt-8">
+                                 <h4 className="text-lg sm:text-xl font-semibold mb-4 text-gray-800 dark:text-white">Detailed Hourly Suggestions:</h4>
+                                 <div className="space-y-6">
+                                     {hourlySuggestionsForDuration.map((hourlyData, index) => (
+                                         <div key={index} className="p-4 sm:p-5 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-md animate-fadeIn" style={{ animationDelay: `${index * 0.15}s` }}>
+                                             <h5 className="text-md sm:text-lg font-bold mb-2 text-gray-800 dark:text-white">
+                                                 {hourlyData.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                             </h5>
+                                             <div className="flex flex-wrap items-center text-sm sm:text-base text-gray-700 dark:text-gray-300 mb-3 gap-x-4 gap-y-2"> {/* Added flex-wrap and gaps */}
+                                                 <span className="text-2xl sm:text-3xl mr-1">{hourlyData.weather.icon}</span> {/* Adjusted margin */}
+                                                 <span>{hourlyData.weather.description}, {hourlyData.weather.temperature.toFixed(1)}°C (Feels like {hourlyData.weather.feelsLike.toFixed(1)}°C)</span>
+                                                 <span>Wind: {hourlyData.weather.windSpeed.toFixed(1)} km/h</span>
+                                                 <span>Precip: {hourlyData.weather.precipitation.toFixed(1)} mm</span>
+                                                  {hourlyData.weather.isDay && hourlyData.weather.uvIndex > 0 && (
+                                                      <span>UV: {hourlyData.weather.uvIndex.toFixed(1)}</span>
+                                                  )}
+                                             </div>
+                                             {hourlyData.suggestions.length > 0 ? (
+                                                 <ul className="list-disc list-inside text-sm sm:text-base text-gray-800 dark:text-white space-y-1">
+                                                     {hourlyData.suggestions.map((suggestion, sIndex) => (
+                                                         <li key={sIndex} className="flex items-center">
+                                                             <span className="mr-2">{getClothingIcon(suggestion)}</span>
+                                                             {suggestion}
+                                                         </li>
+                                                     ))}
+                                                 </ul>
+                                             ) : (
+                                                 <p className="text-sm text-gray-600 dark:text-gray-400">No specific suggestions for this hour.</p>
+                                             )}
+                                         </div>
+                                     ))}
+                                 </div>
+                             </div>
+                         )}
+
                      </section>
                  )}
 
                  {/* Tomorrow's Forecast and Suggestions */}
-                 {!loading && !error && forecastData && (
+                 {!loading && !error && tomorrowWeatherSummary && (
                      <section className="mb-6 sm:mb-8 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
                          <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-800 dark:text-white">Tomorrow&apos;s Forecast and Outfit Suggestions ({activity})</h3>
 
                           {/* Tomorrow's Daily Summary */}
-                           {getTomorrowWeatherSummary() && (
+                           {tomorrowWeatherSummary && (
                                <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm text-gray-800 dark:text-white">
-                                   <h4 className="text-md sm:text-lg font-semibold mb-2">{getTomorrowWeatherSummary().date} Summary:</h4>
-                                   <div className="flex items-center justify-around text-center sm:text-left text-sm sm:text-base">
+                                   <h4 className="text-md sm:text-lg font-semibold mb-2">{tomorrowWeatherSummary.date} Summary:</h4>
+                                   <div className="flex flex-wrap items-center justify-around text-center text-sm sm:text-base gap-4"> {/* Added flex-wrap and gap */}
                                        <div className="flex flex-col items-center">
-                                           <span className="text-3xl sm:text-4xl">{getTomorrowWeatherSummary().dominantIcon}</span>
-                                           <span className="mt-1">{getTomorrowWeatherSummary().dominantCondition}</span>
+                                           <span className="text-3xl sm:text-4xl">{tomorrowWeatherSummary.dominantIcon}</span>
+                                           <span className="mt-1">{tomorrowWeatherSummary.dominantCondition}</span>
                                        </div>
                                        <div className="flex flex-col items-center">
-                                           <span className="font-bold">{getTomorrowWeatherSummary().minTemp}°C</span>
-                                           <span>Min Temp</span>
-                                       </div>
-                                       <div className="flex flex-col items-center">
-                                           <span className="font-bold">{getTomorrowWeatherSummary().maxTemp}°C</span>
-                                           <span>Max Temp</span>
+                                           <span className="font-bold">{tomorrowWeatherSummary.minTemp}°C to {tomorrowWeatherSummary.maxTemp}°C</span>
+                                           <span>Temp Range</span>
                                        </div>
                                         <div className="flex flex-col items-center">
-                                           <span className="font-bold">{getTomorrowWeatherSummary().precipitation} mm</span>
-                                           <span>Precipitation</span>
+                                           <span className="font-bold">{tomorrowWeatherSummary.minFeelsLike}°C to {tomorrowWeatherSummary.maxFeelsLike}°C</span>
+                                           <span>Feels Like Range</span>
                                        </div>
                                         <div className="flex flex-col items-center">
-                                           <span className="font-bold">{getTomorrowWeatherSummary().maxWind} km/h</span>
+                                           <span className="font-bold">{tomorrowWeatherSummary.totalPrecipitation} mm</span>
+                                           <span>Total Precipitation</span>
+                                       </div>
+                                        <div className="flex flex-col items-center">
+                                           <span className="font-bold">{tomorrowWeatherSummary.maxWind} km/h</span>
                                            <span>Max Wind</span>
                                        </div>
                                         <div className="flex flex-col items-center">
-                                           <span className="font-bold">{getTomorrowWeatherSummary().maxUv}</span>
+                                           <span className="font-bold">{tomorrowWeatherSummary.maxUv}</span>
                                            <span>Max UV</span>
                                        </div>
                                    </div>
@@ -936,13 +1100,13 @@ export default function App() {
 
 
                           {/* Temperature Chart for Tomorrow */}
-                          <div ref={tomorrowChartContainerRef} className="w-full overflow-x-auto">
-                             {renderTemperatureChart(getTomorrowHourlyData(), tomorrowChartWidth, "Tomorrow's Temperature Trend")}
+                          <div className="w-full overflow-x-auto">
+                             {renderTemperatureChart(getTomorrowHourlyDataForChart(), "Tomorrow's Temperature Trend")}
                           </div>
 
 
-                         {/* Tomorrow's Outfit Suggestions */}
-                         <h4 className="text-md sm:text-lg font-semibold mt-6 mb-3 text-gray-800 dark:text-white">Suggested Outfit for Tomorrow:</h4>
+                         {/* Tomorrow's Overall Outfit Suggestions */}
+                          <h4 className="text-md sm:text-lg font-semibold mt-6 mb-3 text-gray-800 dark:text-white">Overall Suggestions:</h4>
                          {tomorrowOutfitSuggestions.length > 0 ? (
                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                                  {tomorrowOutfitSuggestions.map((suggestion, index) => (
@@ -962,10 +1126,50 @@ export default function App() {
                              </div>
                          ) : (
                              <div className="text-center text-gray-600 dark:text-gray-400">
-                                 <p>No specific outfit suggestions for tomorrow&apos;s predicted conditions and activity.</p>
+                                 <p>No overall outfit suggestions for tomorrow&apos;s predicted conditions and activity.</p>
                                  <p className="text-sm mt-2">Consider comfortable everyday wear.</p>
                              </div>
                          )}
+
+                          {/* Tomorrow's Detailed Hourly Suggestions (Optional - could add if needed) */}
+                          {/* This section is commented out to keep tomorrow's view simpler, but the data is available if needed */}
+                          {/*
+                          {generateHourlySuggestions(getTomorrowHourlyDataForChart(), activity).length > 0 && (
+                              <div className="mt-8">
+                                  <h4 className="text-lg sm:text-xl font-semibold mb-4 text-gray-800 dark:text-white">Tomorrow's Detailed Hourly Suggestions:</h4>
+                                   <div className="space-y-6">
+                                       {generateHourlySuggestions(getTomorrowHourlyDataForChart(), activity).map((hourlyData, index) => (
+                                           <div key={index} className="p-4 sm:p-5 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-md animate-fadeIn" style={{ animationDelay: `${index * 0.15}s` }}>
+                                               <h5 className="text-md sm:text-lg font-bold mb-2 text-gray-800 dark:text-white">
+                                                   {hourlyData.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                               </h5>
+                                               <div className="flex items-center text-sm sm:text-base text-gray-700 dark:text-gray-300 mb-3">
+                                                   <span className="text-2xl sm:text-3xl mr-3">{hourlyData.weather.icon}</span>
+                                                   <span>{hourlyData.weather.description}, {hourlyData.weather.temperature.toFixed(1)}°C (Feels like {hourlyData.weather.feelsLike.toFixed(1)}°C)</span>
+                                                   <span className="ml-4">Wind: {hourlyData.weather.windSpeed.toFixed(1)} km/h</span>
+                                                   <span className="ml-4">Precip: {hourlyData.weather.precipitation.toFixed(1)} mm</span>
+                                                    {hourlyData.weather.isDay && hourlyData.weather.uvIndex > 0 && (
+                                                        <span className="ml-4">UV: {hourlyData.weather.uvIndex.toFixed(1)}</span>
+                                                    )}
+                                               </div>
+                                               {hourlyData.suggestions.length > 0 ? (
+                                                   <ul className="list-disc list-inside text-sm sm:text-base text-gray-800 dark:text-white space-y-1">
+                                                       {hourlyData.suggestions.map((suggestion, sIndex) => (
+                                                           <li key={sIndex} className="flex items-center">
+                                                               <span className="mr-2">{getClothingIcon(suggestion)}</span>
+                                                               {suggestion}
+                                                           </li>
+                                                       ))}
+                                                   </ul>
+                                               ) : (
+                                                   <p className="text-sm text-gray-600 dark:text-gray-400">No specific suggestions for this hour.</p>
+                                               )}
+                                           </div>
+                                       ))}
+                                   </div>
+                               </div>
+                          )}
+                           */}
                      </section>
                  )}
 
@@ -974,14 +1178,14 @@ export default function App() {
                  {!loading && !error && (
                      <section className="mb-6 sm:mb-8 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 text-center text-gray-600 dark:text-gray-400 text-sm sm:text-base">
                          <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-800 dark:text-white">More Features Coming Soon!</h3>
-                         <p>Detailed Hourly Suggestions | Multi-Day Summary | Save Outfits | Personal Preferences</p>
+                         <p>Multi-Day Summary | Save Outfits | Personal Preferences</p>
                          {/* Removed the button as the chart is now included */}
                      </section>
                  )}
 
 
                 {/* Footer */}
-                <footer className="text-center text-gray-600 dark:text-gray-400 text-xs sm:text-sm mt-6 sm:mt-8">
+                <footer className="text-center text-gray-600 dark:text-gray-400 dark:text-gray-400 text-xs sm:text-sm mt-6 sm:mt-8">
                     <p>Weather data from <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-800 dark:hover:text-white transition-colors">Open-Meteo.com</a></p>
                     <p>Location data from <a href="https://nominatim.org/" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-800 dark:hover:text-white transition-colors">Nominatim (OpenStreetMap)</a></p>
                     <p className="mt-1 sm:mt-2">&copy; 2023 Outfit Genius</p>
